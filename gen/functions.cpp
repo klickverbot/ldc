@@ -24,6 +24,7 @@
 #include "gen/abi.h"
 #include "gen/nested.h"
 #include "gen/pragma.h"
+#include "gen/vararg.h"
 
 using namespace llvm::Attribute;
 
@@ -99,32 +100,8 @@ llvm::FunctionType* DtoFunctionType(Type* type, Type* thistype, Type* nesttype, 
     }
 
     // vararg functions are special too
-    if (f->varargs)
-    {
-        if (f->linkage == LINKd)
-        {
-            // d style with hidden args
-            // 2 (array) is handled by the frontend
-            if (f->varargs == 1)
-            {
-                // _arguments
-                fty.arg_arguments = new IrFuncTyArg(Type::typeinfo->type->arrayOf(), false);
-                lidx++;
-                // _argptr
-                fty.arg_argptr = new IrFuncTyArg(Type::tvoid->pointerTo(), false, NoAlias | NoCapture);
-                lidx++;
-            }
-        }
-        else if (f->linkage == LINKc)
-        {
-            fty.c_vararg = true;
-        }
-        else
-        {
-            type->error(0, "invalid linkage for variadic function");
-            fatal();
-        }
-    }
+    VarargABI::target()->lowerVarargsToType(f, fty);
+    lidx += (fty.arg_arguments != NULL) + (fty.arg_argptr != NULL);
 
     // if this _Dmain() doesn't have an argument, we force it to have one
     int nargs = Parameter::dim(f->parameters);
@@ -146,6 +123,8 @@ llvm::FunctionType* DtoFunctionType(Type* type, Type* thistype, Type* nesttype, 
 #if !SARRAYVALUE
         byref = byref || (arg->type->toBasetype()->ty == Tsarray);
 #endif
+        // TODO: ...
+        if (arg->type == VarargABI::target()->vaListType()) byref = true;
 
         Type* argtype = arg->type;
         llvm::Attributes a = None;
@@ -192,7 +171,7 @@ llvm::FunctionType* DtoFunctionType(Type* type, Type* thistype, Type* nesttype, 
     if (f->fty.arg_this) argtypes.push_back(f->fty.arg_this->ltype);
     if (f->fty.arg_nest) argtypes.push_back(f->fty.arg_nest->ltype);
     if (f->fty.arg_arguments) argtypes.push_back(f->fty.arg_arguments->ltype);
-    if (f->fty.arg_argptr) argtypes.push_back(f->fty.arg_argptr->ltype);
+    //    if (f->fty.arg_argptr) argtypes.push_back(f->fty.arg_argptr->ltype);
 
     size_t beg = argtypes.size();
     size_t nargs2 = f->fty.args.size();
@@ -579,10 +558,12 @@ void DtoDeclareFunction(FuncDeclaration* fdecl)
             ++iarg;
         }
 
-        if (f->fty.arg_argptr) {
-            iarg->setName("._arguments");
-            fdecl->ir.irFunc->_arguments = iarg;
+        if (f->fty.arg_arguments) {
+            iarg->setName("._arguments_typeinfo");
+            fdecl->ir.irFunc->_arguments_typeinfo = iarg;
             ++iarg;
+        }
+        if (f->fty.arg_argptr) {
             iarg->setName("._argptr");
             fdecl->ir.irFunc->_argptr = iarg;
             ++iarg;
@@ -818,20 +799,28 @@ void DtoDefineFunction(FuncDeclaration* fd)
     // copy _argptr and _arguments to a memory location
     if (f->linkage == LINKd && f->varargs == 1)
     {
-        // _argptr
-        LLValue* argptrmem = DtoRawAlloca(fd->ir.irFunc->_argptr->getType(), 0, "_argptr_mem");
-        new llvm::StoreInst(fd->ir.irFunc->_argptr, argptrmem, gIR->scopebb());
-        fd->ir.irFunc->_argptr = argptrmem;
+        // _arguments - copy to memory location
+        LLValue* argumentsmem = DtoRawAlloca(fd->ir.irFunc->_arguments_typeinfo->getType(), 0, "_arguments_typeinfo_mem");
+        new llvm::StoreInst(fd->ir.irFunc->_arguments_typeinfo, argumentsmem, gIR->scopebb());
+        fd->ir.irFunc->_arguments_typeinfo = argumentsmem;
 
-        // _arguments
-        LLValue* argumentsmem = DtoRawAlloca(fd->ir.irFunc->_arguments->getType(), 0, "_arguments_mem");
-        new llvm::StoreInst(fd->ir.irFunc->_arguments, argumentsmem, gIR->scopebb());
-        fd->ir.irFunc->_arguments = argumentsmem;
+        // _argptr - invoke va_start to fill
+        LLValue* argptr = DtoAlloca(VarargABI::target()->vaListType(), "_argptr");
+        gIR->ir->CreateCall(GET_INTRINSIC_DECL(vastart),
+            DtoBitCast(argptr, getVoidPtrType(), "_argptr_as_void"), "");
+        fd->ir.irFunc->_argptr = argptr;
     }
 
     // output function body
     fd->fbody->toIR(gIR);
     irfunction->gen = 0;
+
+    if (f->linkage == LINKd && f->varargs == 1)
+    {
+        gIR->ir->CreateCall(GET_INTRINSIC_DECL(vaend),
+            DtoBitCast(fd->ir.irFunc->_argptr, getVoidPtrType()), "");
+    }
+
 
     // TODO: clean up this mess
 

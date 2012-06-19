@@ -258,6 +258,7 @@ namespace {
                 break;
             }
             case Sse:
+                assert(size > 8);
                 parts.push_back(size <= 12 ? LLType::getFloatTy(gIR->context()) : LLType::getDoubleTy(gIR->context()));
                 break;
 

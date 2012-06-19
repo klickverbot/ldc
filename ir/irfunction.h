@@ -95,7 +95,7 @@ struct IrFunction : IrBase
     int depth;
     bool nestedContextCreated; // holds whether nested context is created
     
-    llvm::Value* _arguments;
+    llvm::Value* _arguments_typeinfo;
     llvm::Value* _argptr;
     
     llvm::DISubprogram diSubprogram;

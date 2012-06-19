@@ -275,6 +275,7 @@ Msgtable msgtable[] =
     { "vacopy", "va_copy" },
     { "vaend", "va_end" },
     { "vaarg", "va_arg" },
+    { "valist", "va_list" },
     { "ldc" },
     { "allow_inline" },
     { "llvm_inline_asm" },

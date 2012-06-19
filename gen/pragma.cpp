@@ -7,6 +7,7 @@
 #include "declaration.h"
 #include "template.h"
 #include "llvm/Support/CommandLine.h"
+#include "vararg.h"
 
 static bool parseStringExp(Expression* e, std::string& res)
 {
@@ -148,6 +149,29 @@ Pragma DtoGetPragma(Scope *sc, PragmaDeclaration *decl, std::string &arg1str)
              fatal();
         }
         return LLVMva_arg;
+    }
+
+    // pragma(va_list) { aliasdecl(s) }
+    else if (ident == Id::valist)
+    {
+        if (args && args->dim > 0)
+        {
+             error("takes no parameters");
+             fatal();
+        }
+        if (Dsymbols* decls = decl->decl)
+        {
+            for (size_t i = 0; i < decls->dim; i++)
+            {
+                if (AliasDeclaration* ad = (*decls)[i]->isAliasDeclaration())
+                {
+                    // Rewrite the alias target to the builtin va_list type.
+                    ad->aliassym = NULL;
+                    ad->type = VarargABI::target()->vaListType();
+                }
+            }
+        }
+        return LLVMva_list;
     }
 
     // pragma(fence) { funcdecl(s) }
@@ -336,6 +360,17 @@ void DtoCheckPragma(PragmaDeclaration *decl, Dsymbol *s,
         else
         {
             error("the '%s' pragma is only allowed on function declarations", ident->toChars());
+            fatal();
+        }
+        break;
+
+    case LLVMva_list:
+        if (!s->isAliasDeclaration())
+        {
+            // The meat happens in DtoGetPragma() - need to rewrite the
+            // declaration before semantic analysis happens, thus the kludgy
+            // approach.
+            error("the '%s' pragma is only allowed on alias declarations", ident->toChars());
             fatal();
         }
         break;

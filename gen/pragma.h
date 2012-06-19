@@ -18,6 +18,7 @@ enum Pragma
     LLVMva_copy,
     LLVMva_end,
     LLVMva_arg,
+    LLVMva_list,
     LLVMinline_asm,
     LLVMfence,
     LLVMatomic_store,

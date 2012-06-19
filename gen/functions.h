@@ -10,6 +10,7 @@ struct IRAsmBlock;
 
 namespace llvm
 {
+    class FunctionType;
     class Value;
 }
 

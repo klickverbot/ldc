@@ -29,6 +29,10 @@
 #include "d-dmd-gcc.h"
 #endif
 
+#ifdef IN_LLVM
+#include "../gen/vararg.h"
+#endif
+
 /********************************* FuncDeclaration ****************************/
 
 FuncDeclaration::FuncDeclaration(Loc loc, Loc endloc, Identifier *id, StorageClass storage_class, Type *type)
@@ -883,7 +887,7 @@ void FuncDeclaration::semantic2(Scope *sc)
 void FuncDeclaration::semantic3(Scope *sc)
 {   TypeFunction *f;
     VarDeclaration *argptr = NULL;
-    VarDeclaration *_arguments = NULL;
+    Expression *_arguments = NULL;
     int nerrors = global.errors;
 
     if (!parent)
@@ -1035,12 +1039,15 @@ void FuncDeclaration::semantic3(Scope *sc)
                 sc2->insert(v_arguments);
                 v_arguments->parent = this;
 
-                //t = Type::typeinfo->type->constOf()->arrayOf();
-                t = Type::typeinfo->type->arrayOf();
-                _arguments = new VarDeclaration(0, t, Id::_arguments, NULL);
-                _arguments->semantic(sc2);
-                sc2->insert(_arguments);
-                _arguments->parent = this;
+                /* Advance to elements[] member of TypeInfo_Tuple with:
+                 *  _arguments = v_arguments.elements;
+                 */
+                Expression *e = new VarExp(0, v_arguments);
+                e = new DotIdExp(0, e, Id::elements);
+                ExpInitializer *ei = new ExpInitializer(e->loc, e);
+
+                VarDeclaration *v = new VarDeclaration(ei->loc, Type::typeinfo->type->arrayOf(), Id::_arguments, ei);
+                _arguments = (new DeclarationExp(v->loc, v))->semantic(sc2);
 #else
                 t = Type::typeinfo->type->arrayOf();
                 v_arguments = new VarDeclaration(0, t, Id::_arguments, NULL);
@@ -1054,6 +1061,8 @@ void FuncDeclaration::semantic3(Scope *sc)
             {   // Declare _argptr
 #if IN_GCC
                 t = d_gcc_builtin_va_list_d_type;
+#elif IN_LLVM
+                t = VarargABI::target()->vaListType();
 #else
                 t = Type::tvoid->pointerTo();
 #endif
@@ -1583,21 +1592,13 @@ void FuncDeclaration::semantic3(Scope *sc)
                 }
 #endif
             }
+#endif // !IN_LLVM
 
             if (_arguments)
             {
-                /* Advance to elements[] member of TypeInfo_Tuple with:
-                 *  _arguments = v_arguments.elements;
-                 */
-                Expression *e = new VarExp(0, v_arguments);
-                e = new DotIdExp(0, e, Id::elements);
-                Expression *e1 = new VarExp(0, _arguments);
-                e = new ConstructExp(0, e1, e);
-                e = e->semantic(sc2);
-                a->push(new ExpStatement(0, e));
+                a->push(new ExpStatement(0, _arguments));
             }
 
-#endif // !IN_LLVM
 
             // Merge contracts together with body into one compound statement
 

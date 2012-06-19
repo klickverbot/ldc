@@ -42,6 +42,7 @@
 #include "gen/warnings.h"
 #include "gen/optimizer.h"
 #include "gen/pragma.h"
+#include "gen/vararg.h"
 
 #include "llvm/Support/ManagedStatic.h"
 
@@ -134,10 +135,10 @@ DValue* VarExp::toElem(IRState* p)
         }
 
         // _arguments
-        if (vd->ident == Id::_arguments && p->func()->_arguments)
+        if (vd->ident == Id::_arguments_typeinfo && p->func()->_arguments_typeinfo)
         {
-            Logger::println("Id::_arguments");
-            LLValue* v = p->func()->_arguments;
+            Logger::println("Id::_arguments_typeinfo");
+            LLValue* v = p->func()->_arguments_typeinfo;
             return new DVarValue(type, vd, v);
         }
         // _argptr
@@ -885,6 +886,8 @@ DValue* CallExp::toElem(IRState* p)
             }
         }
 
+        // TODO: Refactor to VarargABI::target()->callXyz()
+
         // va_start instruction
         if (fndecl->llvmInternal == LLVMva_start) {
             if (arguments->dim != 2) {
@@ -896,13 +899,16 @@ DValue* CallExp::toElem(IRState* p)
             LLValue* arg = exp->toElem(p)->getLVal();
 #if DMDV2
             if (LLValue *argptr = gIR->func()->_argptr) {
-                DtoStore(DtoLoad(argptr), DtoBitCast(arg, getPtrToType(getVoidPtrType())));
-                return new DImValue(type, arg);
+                return new DImValue(type, argptr);
             } else if (global.params.cpu == ARCHx86_64) {
-                LLValue *va_list = DtoAlloca(exp->type->nextOf());
-                DtoStore(va_list, arg);
-                va_list = DtoBitCast(va_list, getVoidPtrType());
-                return new DImValue(type, gIR->ir->CreateCall(GET_INTRINSIC_DECL(vastart), va_list, ""));
+                if (exp->type != VarargABI::target()->vaListType())
+                {
+                    error("First argument to va_start must be of type va_list.");
+                    return NULL;
+                }
+                arg = DtoBitCast(arg, getVoidPtrType());
+                return new DImValue(type, gIR->ir->CreateCall(
+                    GET_INTRINSIC_DECL(vastart), arg, ""));
             } else
 #endif
             {
@@ -916,16 +922,24 @@ DValue* CallExp::toElem(IRState* p)
                 error("va_copy instruction expects 2 arguments");
                 return NULL;
             }
-            Expression* exp1 = (Expression*)arguments->data[0];
-            Expression* exp2 = (Expression*)arguments->data[1];
-            LLValue* arg1 = exp1->toElem(p)->getLVal();
-            LLValue* arg2 = exp2->toElem(p)->getLVal();
 
-            LLValue *va_list = DtoAlloca(exp1->type->nextOf());
-            DtoStore(va_list, arg1);
+            Expression* destExp = (Expression*)arguments->data[0];
+            if (destExp->type != VarargABI::target()->vaListType())
+            {
+                error("First argument to va_copy must be of type va_list.");
+                return NULL;
+            }
 
-            DtoStore(DtoLoad(DtoLoad(arg2)), DtoLoad(arg1));
-            return new DVarValue(type, arg1);
+            Expression* srcExp = (Expression*)arguments->data[1];
+            if (srcExp->type != VarargABI::target()->vaListType())
+            {
+                error("Second argument to va_copy must be of type va_list.");
+                return NULL;
+            }
+
+            LLValue* destVal = destExp->toElem(p)->getLVal();
+            DtoStore(DtoLoad(srcExp->toElem(p)->getLVal()), destVal);
+            return new DVarValue(type, destVal);
         }
 #endif
         // va_arg instruction
