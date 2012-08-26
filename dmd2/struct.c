@@ -794,7 +794,14 @@ void StructDeclaration::makeNested()
  */
 bool StructDeclaration::isPOD()
 {
-    if (isnested || cpctor || postblit || ctor || dtor)
+    if (isnested || cpctor || postblit ||
+#ifndef IN_LLVM
+        // We don't check for constructors for System-V x86_64 ABI
+        // compatibility (section 3.2.3, aggregate types, point 2 - only
+        // copy constructors and destructors are relevant).
+        ctor ||
+#endif
+        dtor)
         return false;
 
     /* Recursively check any fields have a constructor.

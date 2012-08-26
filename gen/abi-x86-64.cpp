@@ -118,6 +118,12 @@ namespace {
             }
         }
 
+        bool operator== (const Classification& rhs) const {
+            return isMemory == rhs.isMemory &&
+                classes[0] == rhs.classes[0] &&
+                classes[1] == rhs.classes[1];
+	}
+
     private:
         ArgClass merge(ArgClass accum, ArgClass cl) {
             if (accum == cl)
@@ -154,7 +160,7 @@ namespace {
             accum.addField(offset+16, ComplexX87);
         } else if (ty->ty == Tcomplex64) {
             accum.addField(offset, Sse);
-            accum.addField(offset+8, Sse);
+            accum.addField(offset+8, Sse); // Should this be SseUp?
         } else if (ty->ty == Tcomplex32) {
             accum.addField(offset, Sse);
             accum.addField(offset+4, Sse);
@@ -362,12 +368,116 @@ struct RegCount {
 };
 
 
+#ifdef DEBUG_ARGTYPES_CONSISTENCY
+static Classification convert(TypeTuple* tup) {
+    Classification cl;
+
+    if (!tup) {
+        cl.classes[0] = Memory;
+        cl.classes[1] = Memory;
+        cl.isMemory = true;
+        return cl;
+    }
+
+    Parameters* p = tup->arguments;
+
+    if (p->dim == 0) {
+        cl.classes[0] = Memory;
+        cl.classes[1] = Memory;
+        cl.isMemory = true;
+        return cl;
+    }
+
+    {
+        Type* t1 = (*p)[0]->type;
+
+        assert(t1->ty != Tcomplex32 && t1->ty != Tcomplex64 && t1->ty != Tcomplex80 &&
+            t1->ty != Timaginary32 && t1->ty != Timaginary64 && t1->ty != Timaginary80 &&
+            "Complex types should have been lowered by DMD.");
+
+        if (t1->isintegral() || t1->ty == Tpointer) {
+            cl.classes[0] = Integer;
+        } else if (t1->ty == Tfloat80) {
+            cl.classes[0] = X87;
+            cl.classes[1] = X87Up;
+            // Could also be ComplexX87, see below.
+        } else if (t1->isfloating()) {
+            cl.classes[0] = Sse;
+        } else if (t1->ty == Tvector) {
+            // TODO: Handle vector types.
+        } else {
+            fprintf(stderr, "[argtypes-consistency] Unexpected type: %s\n", t1->toChars());
+        }
+    }
+
+    if (p->dim == 1) return cl;
+
+    {
+        Type* t2 = (*p)[1]->type;
+        if (t2->isintegral() || t2->ty == Tpointer) {
+            cl.classes[1] = Integer;
+        } else if (t2->ty == Tfloat80) {
+            assert(cl.classes[0] == X87);
+            cl.classes[0] = cl.classes[1] = ComplexX87;
+        } else if (t2->isfloating()) {
+            cl.classes[1] = Sse;
+        } else if (t2->ty == Tvector) {
+            // TODO: Handle vector types.
+        } else {
+            fprintf(stderr, "[argtypes-consistency] Unexpected type: %s\n", t2->toChars());
+        }
+    }
+
+    return cl;
+}
+
+static void consistencyCheck(Type* t) {
+    if (t->toBasetype() == Type::tvoid) return;
+
+    Classification cl = classify(t);
+    TypeTuple* argt = t->toArgTypes();
+    Classification cl2 = convert(argt);
+    if (t->toBasetype()->ty == Tstruct && ((TypeStruct*)t)->sym->fields.dim == 0)
+    {
+        // DMD assigns size 1 to empty structs and thus misclassifies them as
+        // (byte) -> (Memory, Memory).
+        cl2.isMemory = false;
+        cl2.classes[0] = NoClass;
+        cl2.classes[1] = NoClass;
+    }
+    if (cl == cl2) return;
+
+    static char * const names[8] = {
+        "Integer", "Sse", "SseUp", "X87", "X87Up", "ComplexX87", "NoClass", "Memory"
+    };
+
+    fprintf(stderr,
+        "[argtypes-consistency] Mismatch found for: %s. DMD suggests %s -> (%s, %s), but we are doing (%s, %s).\n",
+        t->toChars(), (argt ? argt->toChars() : "()"),
+        names[cl2.classes[0]], names[cl2.classes[1]],
+        names[cl.classes[0]], names[cl.classes[1]]);
+
+    assert((t->ty == Tvector || t->ty == Tsarray) &&
+        "Only vectors/static arrays should not be correctly implemented yet.");
+}
+#endif
+
 struct X86_64TargetABI : TargetABI {
     X86_64_C_struct_rewrite struct_rewrite;
     X87_complex_swap swapComplex;
     CompositeToInt compositeToInt;
 
     void newFunctionType(TypeFunction* tf) {
+#ifdef DEBUG_ARGTYPES_CONSISTENCY
+        consistencyCheck(tf->next);
+
+        if (tf->parameters) {
+            size_t n = Parameter::dim(tf->parameters);
+            for (size_t i = 0; i < n; ++i) {
+                consistencyCheck(Parameter::getNth(tf->parameters, i)->type);
+            }
+        }
+#endif
         funcTypeStack.push_back(FuncTypeData(tf->linkage));
     }
 
