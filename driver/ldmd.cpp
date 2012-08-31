@@ -616,7 +616,8 @@ Params parseArgs(int originalArgc, char** originalArgv, ls::Path ldcPath)
                             goto Lerror;
                         result.versionLevel = (int)level;
                     }
-                    result.versionIdentifiers.push_back(p + 9);
+                    else
+                        result.versionIdentifiers.push_back(p + 9);
                 }
                 else
                     goto Lerror;
@@ -769,7 +770,7 @@ void buildCommandLine(std::vector<const char*>& r, const Params& p)
     if (p.debugFlag) r.push_back("-d-debug");
     if (p.debugLevel) r.push_back(concat("-d-debug=", p.debugLevel));
     pushSwitches("-d-debug=", p.debugIdentifiers, r);
-    if (p.debugLevel) r.push_back(concat("-d-version=", p.versionLevel));
+    if (p.versionLevel) r.push_back(concat("-d-version=", p.versionLevel));
     pushSwitches("-d-version=", p.versionIdentifiers, r);
     pushSwitches("-L=", p.linkerSwitches, r);
     if (p.defaultLibName) r.push_back(concat("-defaultlib=", p.defaultLibName));
