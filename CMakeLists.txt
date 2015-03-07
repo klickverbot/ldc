@@ -290,12 +290,15 @@ source_group("Generated Files" REGULAR_EXPRESSION "(id\\.[ch]|impcnvtab\\.c)$")
 
 include_directories(
     .
-    ${DMDFE_PATH}
-    ${DMDFE_PATH}/root
-    ${PROJECT_BINARY_DIR}/${DMDFE_PATH}
     ${PROJECT_SOURCE_DIR}
 )
-include_directories( SYSTEM
+
+# Mark DMD directories as "SYSTEM" to reduce amount of warnings generated
+# in them (which Walter won't let us fix upstream).
+include_directories(SYSTEM
+    ${PROJECT_BINARY_DIR}/${DMDFE_PATH}
+    ${DMDFE_PATH}
+    ${DMDFE_PATH}/root
     ${LLVM_INCLUDE_DIRS}
     ${LIBCONFIG_INCLUDE_DIR}
 )
