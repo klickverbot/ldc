@@ -588,13 +588,6 @@ public:
     FuncDeclaration *fdrequire;         // function that does the in contract
     FuncDeclaration *fdensure;          // function that does the out contract
 
-#if IN_LLVM
-    // Argument lists for the __require/__ensure calls. NULL if not a virtual
-    // function with contracts.
-    Expressions *fdrequireParams;
-    Expressions *fdensureParams;
-#endif
-
     Identifier *outId;                  // identifier for out statement
     VarDeclaration *vresult;            // variable corresponding to outId
     LabelDsymbol *returnLabel;          // where the return goes
@@ -727,8 +720,8 @@ public:
     bool needsClosure();
     bool hasNestedFrameRefs();
     void buildResultVar();
-    Statement *mergeFrequire(Statement *, Expressions *params = 0);
-    Statement *mergeFensure(Statement *, Identifier *oid, Expressions *params = 0);
+    Statement *mergeFrequire(Statement *);
+    Statement *mergeFensure(Statement *, Identifier *oid);
     Parameters *getParameters(int *pvarargs);
 
     static FuncDeclaration *genCfunc(Parameters *args, Type *treturn, const char *name);

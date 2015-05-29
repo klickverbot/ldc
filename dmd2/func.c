@@ -298,10 +298,6 @@ FuncDeclaration::FuncDeclaration(Loc loc, Loc endloc, Identifier *id, StorageCla
     frequire = NULL;
     fdrequire = NULL;
     fdensure = NULL;
-#if IN_LLVM
-    fdrequireParams = NULL;
-    fdensureParams = NULL;
-#endif
     outId = NULL;
     vresult = NULL;
     returnLabel = NULL;
@@ -378,31 +374,6 @@ Dsymbol *FuncDeclaration::syntaxCopy(Dsymbol *s)
 
     return f;
 }
-
-#if IN_LLVM
-static int outToRefDg(void *ctx, size_t n, Parameter *p)
-{
-    if (p->storageClass & STCout)
-    {
-        // Cannot just use syntaxCopy() here, because it would cause the
-        // parameter type to be semantic()ed again, in the wrong scope. So,
-        // just copy the outer layer to modify the storage class.
-        void *cpy = malloc(sizeof(Parameter));
-        memcpy(cpy, (void *)p, sizeof(Parameter));
-        p = (Parameter *)cpy;
-        p->storageClass &= ~STCout;
-        p->storageClass |= STCref;
-    }
-    ((Parameters *)ctx)->push(p);
-    return 0;
-}
-static Parameters *outToRef(Parameters* params)
-{
-    Parameters *result = new Parameters();
-    Parameter::foreach(params, &outToRefDg, result);
-    return result;
-}
-#endif
 
 // Do the semantic analysis on the external interface to the function.
 
@@ -1113,29 +1084,12 @@ void FuncDeclaration::semantic(Scope *sc)
          */
         if (frequire)
         {
-#if IN_LLVM
-            /* In LDC, we can't rely on the codegen hacks DMD has to be able
-             * to just magically call the contract function parameterless with
-             * the parameters being picked up from the outer stack frame.
-             *
-             * Thus, we actually pass all the function parameters to the
-             * __require call, rewriting out parameters to ref ones because
-             * they have already been zeroed in the outer function.
-             *
-             * Also initialize fdrequireParams here - it will get filled in
-             * in semantic3.
-             */
-            fdrequireParams = new Expressions();
-            Parameters *params = outToRef(((TypeFunction*)type)->parameters);
-            TypeFunction *tf = new TypeFunction(params, Type::tvoid, 0, LINKd);
-#else
             /*   in { ... }
              * becomes:
              *   void __require() { ... }
              *   __require();
              */
             TypeFunction *tf = new TypeFunction(NULL, Type::tvoid, 0, LINKd);
-#endif
             Loc loc = frequire->loc;
             tf->isnothrow = f->isnothrow;
             tf->isnogc = f->isnogc;
@@ -1145,11 +1099,7 @@ void FuncDeclaration::semantic(Scope *sc)
                 Id::require, STCundefined, tf);
             fd->fbody = frequire;
             Statement *s1 = new ExpStatement(loc, fd);
-#if IN_LLVM
-            Expression *e = new CallExp(loc, new VarExp(loc, fd, 0), fdrequireParams);
-#else
             Expression *e = new CallExp(loc, new VarExp(loc, fd, 0), (Expressions *)NULL);
-#endif
             Statement *s2 = new ExpStatement(loc, e);
             frequire = new CompoundStatement(loc, s1, s2);
             fdrequire = fd;
@@ -1158,38 +1108,19 @@ void FuncDeclaration::semantic(Scope *sc)
         if (!outId && f->nextOf() && f->nextOf()->toBasetype()->ty != Tvoid)
             outId = Id::result; // provide a default
 
-#if IN_LLVM
-        /* We need to initialize fdensureParams here and not in the block below
-         * to have the parameter available when calling a base class ensure(),
-         * even if this functions doesn't have an out contract.
-         */
-        fdensureParams = new Expressions();
-        if (outId)
-            fdensureParams->push(new IdentifierExp(loc, outId));
-#endif
-
         if (fensure)
         {
-#if IN_LLVM
-            /* Same as for in contracts, see above. */
-            Parameters *arguments = outToRef(((TypeFunction*)type)->parameters);
-#else
             /*   out (result) { ... }
              * becomes:
              *   void __ensure(ref tret result) { ... }
              *   __ensure(result);
              */
             Parameters *arguments = new Parameters();
-#endif
             Loc loc = fensure->loc;
             Parameter *a = NULL;
             if (outId)
             {   a = new Parameter(STCref | STCconst, f->nextOf(), outId, NULL);
-#if IN_LLVM
-                arguments->insert(0, a);
-#else
                 arguments->push(a);
-#endif
             }
             TypeFunction *tf = new TypeFunction(arguments, Type::tvoid, 0, LINKd);
             tf->isnothrow = f->isnothrow;
@@ -1200,14 +1131,10 @@ void FuncDeclaration::semantic(Scope *sc)
                 Id::ensure, STCundefined, tf);
             fd->fbody = fensure;
             Statement *s1 = new ExpStatement(loc, fd);
-#if IN_LLVM
-            Expression *e = new CallExp(loc, new VarExp(loc, fd, 0), fdensureParams);
-#else
             Expression *eresult = NULL;
             if (outId)
                 eresult = new IdentifierExp(loc, outId);
             Expression *e = new CallExp(loc, new VarExp(loc, fd, 0), eresult);
-#endif
             Statement *s2 = new ExpStatement(loc, e);
             fensure = new CompoundStatement(loc, s1, s2);
             fdensure = fd;
@@ -1529,12 +1456,6 @@ void FuncDeclaration::semantic3(Scope *sc)
                     parameters->push(v);
                 localsymtab->insert(v);
                 v->parent = this;
-#if IN_LLVM
-                if (fdrequireParams)
-                    fdrequireParams->push(new VarExp(loc, v));
-                if (fdensureParams)
-                    fdensureParams->push(new VarExp(loc, v));
-#endif
             }
         }
 
@@ -2643,11 +2564,8 @@ void FuncDeclaration::buildResultVar()
  * 'in's are OR'd together, i.e. only one of them needs to pass.
  */
 
-Statement *FuncDeclaration::mergeFrequire(Statement *sf, Expressions *params)
+Statement *FuncDeclaration::mergeFrequire(Statement *sf)
 {
-    if (!params)
-        params = fdrequireParams;
-
     /* If a base function and its override both have an IN contract, then
      * only one of them needs to succeed. This is done by generating:
      *
@@ -2664,11 +2582,6 @@ Statement *FuncDeclaration::mergeFrequire(Statement *sf, Expressions *params)
      * If base.in() throws, then derived.in()'s body is executed.
      */
 
-#if IN_LLVM
-    /* In LDC, we can't rely on these codegen hacks - we explicitly pass
-     * parameters on to the contract functions.
-     */
-#else
     /* Implementing this is done by having the overriding function call
      * nested functions (the fdrequire functions) nested inside the overridden
      * function. This requires that the stack layout of the calling function's
@@ -2685,7 +2598,6 @@ Statement *FuncDeclaration::mergeFrequire(Statement *sf, Expressions *params)
      *     a stack local, allocate that local immediately following the exception
      *     handler block, so it is always at the same offset from EBP.
      */
-#endif
     for (size_t i = 0; i < foverrides.dim; i++)
     {
         FuncDeclaration *fdv = foverrides[i];
@@ -2702,11 +2614,7 @@ Statement *FuncDeclaration::mergeFrequire(Statement *sf, Expressions *params)
             sc->pop();
         }
 
-#if IN_LLVM
-        sf = fdv->mergeFrequire(sf, params);
-#else
         sf = fdv->mergeFrequire(sf);
-#endif
         if (sf && fdv->fdrequire)
         {
             //printf("fdv->frequire: %s\n", fdv->frequire->toChars());
@@ -2714,12 +2622,8 @@ Statement *FuncDeclaration::mergeFrequire(Statement *sf, Expressions *params)
              *   try { __require(); }
              *   catch { frequire; }
              */
-#if IN_LLVM
-            Expression *e = new CallExp(loc, new VarExp(loc, fdv->fdrequire, 0), params);
-#else
             Expression *eresult = NULL;
             Expression *e = new CallExp(loc, new VarExp(loc, fdv->fdrequire, 0), eresult);
-#endif
             Statement *s2 = new ExpStatement(loc, e);
 
             Catch *c = new Catch(loc, NULL, NULL, sf);
@@ -2739,17 +2643,8 @@ Statement *FuncDeclaration::mergeFrequire(Statement *sf, Expressions *params)
  * 'out's are AND'd together, i.e. all of them need to pass.
  */
 
-#if IN_LLVM
-Statement *FuncDeclaration::mergeFensure(Statement *sf, Identifier *oid, Expressions *params)
-#else
 Statement *FuncDeclaration::mergeFensure(Statement *sf, Identifier *oid)
-#endif
 {
-#if IN_LLVM
-    if (!params)
-        params = fdensureParams;
-#endif
-
     /* Same comments as for mergeFrequire(), except that we take care
      * of generating a consistent reference to the 'result' local by
      * explicitly passing 'result' to the nested function as a reference
@@ -2775,11 +2670,7 @@ Statement *FuncDeclaration::mergeFensure(Statement *sf, Identifier *oid)
             sc->pop();
         }
 
-#if IN_LLVM
-        sf = fdv->mergeFensure(sf, oid, params);
-#else
         sf = fdv->mergeFensure(sf, oid);
-#endif
         if (fdv->fdensure)
         {
             //printf("fdv->fensure: %s\n", fdv->fensure->toChars());
@@ -2787,18 +2678,9 @@ Statement *FuncDeclaration::mergeFensure(Statement *sf, Identifier *oid)
             Expression *eresult = NULL;
             if (outId)
             {
-#if IN_LLVM
-                eresult = (*params)[0];
-#else
                 eresult = new IdentifierExp(loc, oid);
-#endif
 
                 Type *t1 = fdv->type->nextOf()->toBasetype();
-#if IN_LLVM
-                // We actually check for matching types in CommaExp::toElem,
-                // 'testcontract' breaks without this.
-                t1 = t1->constOf();
-#endif
                 Type *t2 = this->type->nextOf()->toBasetype();
                 if (t1->isBaseOf(t2, NULL))
                 {
@@ -2814,13 +2696,7 @@ Statement *FuncDeclaration::mergeFensure(Statement *sf, Identifier *oid)
                     eresult = new CommaExp(Loc(), de, ve);
                 }
             }
-#if IN_LLVM
-            if (eresult)
-                (*params)[0] = eresult;
-            Expression *e = new CallExp(loc, new VarExp(loc, fdv->fdensure, 0), params);
-#else
             Expression *e = new CallExp(loc, new VarExp(loc, fdv->fdensure, 0), eresult);
-#endif
             Statement *s2 = new ExpStatement(loc, e);
 
             if (sf)
