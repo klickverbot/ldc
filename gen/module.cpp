@@ -793,7 +793,7 @@ llvm::Module* Module::genLLVMModule(llvm::LLVMContext& context)
     ir.module->setTargetTriple(global.params.targetTriple.str());
 
     // set final data layout
-    ir.module->setDataLayout(gDataLayout->getStringRepresentation());
+    ir.module->setDataLayout(gDataLayout);
 #if LDC_LLVM_VER >= 307
     IF_LOG Logger::cout() << "Final data layout: " << ir.module->getDataLayout().getStringRepresentation() << '\n';
 #else
