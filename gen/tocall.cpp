@@ -874,6 +874,10 @@ DValue* DtoCallFunction(Loc& loc, Type* resulttype, DValue* fnval, Expressions* 
         call.setCallingConv(callconv);
     call.setAttributes(attrlist);
 
+    if (dfnval && dfnval->func->isCtorDeclaration() && dfnval->func->isMember2()->isStructDeclaration()) {
+        return new DVarValue(resulttype, dfnval->vthis);
+    }
+
     // if we are returning through a pointer arg
     // or if we are returning a reference
     // make sure we provide a lvalue back!
