@@ -1,4 +1,4 @@
-//===-- linker.cpp --------------------------------------------------------===//
+//===-- system_linker.cpp -------------------------------------------------===//
 //
 //                         LDC – the LLVM D compiler
 //
@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "driver/linker.h"
+#include "driver/system_linker.h"
 #include "mars.h"
 #include "module.h"
 #include "root.h"

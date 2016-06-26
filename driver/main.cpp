@@ -24,7 +24,7 @@
 #include "driver/configfile.h"
 #include "driver/exe_path.h"
 #include "driver/ldc-version.h"
-#include "driver/linker.h"
+#include "driver/system_linker.h"
 #include "driver/targetmachine.h"
 #include "gen/cl_helpers.h"
 #include "gen/irstate.h"

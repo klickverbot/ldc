@@ -13,7 +13,6 @@
 #include "mars.h"
 #include "module.h"
 #include "scope.h"
-#include "driver/linker.h"
 #include "driver/toobj.h"
 #include "gen/logger.h"
 #include "gen/runtime.h"

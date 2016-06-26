@@ -1,4 +1,4 @@
-//===-- driver/linker.h - Linker invocation ---------------------*- C++ -*-===//
+//===-- driver/system_linker.h - Linker invocation --------------*- C++ -*-===//
 //
 //                         LDC – the LLVM D compiler
 //
@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LDC_DRIVER_LINKER_H
-#define LDC_DRIVER_LINKER_H
+#ifndef LDC_DRIVER_SYSTEM_LINKER_H
+#define LDC_DRIVER_SYSTEM_LINKER_H
 
 namespace llvm {
 class Module;
@@ -45,4 +45,4 @@ void deleteExecutable();
  */
 int runExecutable();
 
-#endif // LDC_DRIVER_LINKER_H
+#endif // LDC_DRIVER_SYSTEM_LINKER_H

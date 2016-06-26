@@ -390,12 +390,12 @@ set(DRV_SRC
     driver/targetmachine.cpp
     driver/toobj.cpp
     driver/tool.cpp
-    driver/linker.cpp
+    driver/system_linker.cpp
     driver/main.cpp
     ${CMAKE_BINARY_DIR}/driver/ldc-version.cpp
 )
 set(DRV_HDR
-    driver/linker.h
+    driver/system_linker.h
     driver/cl_options.h
     driver/codegenerator.h
     driver/configfile.h
