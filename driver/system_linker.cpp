@@ -66,9 +66,8 @@ static std::string getOutputName(bool const sharedLib) {
   // try root module name
   if (Module::rootModule) {
     result = Module::rootModule->toChars();
-  } else if (global.params.objfiles->dim) {
-    result = FileName::removeExt(
-        static_cast<const char *>(global.params.objfiles->data[0]));
+  } else if (!global.params.objfiles->empty()) {
+    result = FileName::removeExt((*global.params.objfiles)[0]);
   } else {
     result = "a.out";
   }
@@ -118,8 +117,7 @@ static int linkObjToBinaryGcc(bool sharedLib, bool fullyStatic) {
 
   // object files
   for (unsigned i = 0; i < global.params.objfiles->dim; i++) {
-    const char *p = static_cast<const char *>(global.params.objfiles->data[i]);
-    args.push_back(p);
+    args.push_back((*global.params.objfiles)[i]);
   }
 
   // Link with profile-rt library when generating an instrumented binary.
@@ -139,12 +137,11 @@ static int linkObjToBinaryGcc(bool sharedLib, bool fullyStatic) {
 
   // user libs
   for (unsigned i = 0; i < global.params.libfiles->dim; i++) {
-    const char *p = static_cast<const char *>(global.params.libfiles->data[i]);
-    args.push_back(p);
+    args.push_back((*global.params.libfiles)[i]);
   }
 
   // output filename
-  std::string output = getOutputName(sharedLib);
+  const auto output = getOutputName(sharedLib);
 
   if (sharedLib) {
     args.push_back("-shared");
@@ -179,14 +176,13 @@ static int linkObjToBinaryGcc(bool sharedLib, bool fullyStatic) {
 
   // additional linker switches
   for (unsigned i = 0; i < global.params.linkswitches->dim; i++) {
-    const char *p =
-        static_cast<const char *>(global.params.linkswitches->data[i]);
     // Don't push -l and -L switches using -Xlinker, but pass them indirectly
     // via GCC. This makes sure user-defined paths take precedence over
     // GCC's builtin LIBRARY_PATHs.
     // Options starting with -shared and -static are not handled by
     // the linker and must be passed to the driver.
-    auto str = llvm::StringRef(p);
+    const auto p = (*global.params.linkswitches)[i];
+    const auto str = llvm::StringRef(p);
     if (!(str.startswith("-l") || str.startswith("-L") ||
           str.startswith("-shared") || str.startswith("-static"))) {
       args.push_back("-Xlinker");
@@ -305,11 +301,10 @@ static int linkObjToBinaryGcc(bool sharedLib, bool fullyStatic) {
   Stream logstr = Logger::cout();
   for (const auto &arg : args) {
     if (!arg.empty()) {
-      logstr << "'" << arg << "'"
-             << " ";
+      logstr << "'" << arg << "' ";
     }
   }
-  logstr << "\n"; // FIXME where's flush ?
+  logstr << std::endl;
 
   // try to call linker
   return executeToolAndWait(gcc, args, global.params.verbose);
@@ -380,21 +375,21 @@ int executeAndWait(const char *commandLine) {
   PROCESS_INFORMATION pi;
   ZeroMemory(&pi, sizeof(pi));
 
-  DWORD exitCode;
-
   // according to MSDN, only CreateProcessW (unicode) may modify the passed
   // command line
   if (!CreateProcess(NULL, const_cast<char *>(commandLine), NULL, NULL, TRUE, 0,
                      NULL, NULL, &si, &pi)) {
-    exitCode = -1;
-  } else {
-    if (WaitForSingleObject(pi.hProcess, INFINITE) != 0 ||
-        !GetExitCodeProcess(pi.hProcess, &exitCode))
-      exitCode = -2;
-
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
+    return -1;
   }
+
+  DWORD exitCode;
+  if (WaitForSingleObject(pi.hProcess, INFINITE) != 0 ||
+      !GetExitCodeProcess(pi.hProcess, &exitCode)) {
+    exitCode = -2;
+  }
+
+  CloseHandle(pi.hProcess);
+  CloseHandle(pi.hThread);
 
   return exitCode;
 }
@@ -559,8 +554,7 @@ static int linkObjToBinaryWin(bool sharedLib) {
 
   // object files
   for (unsigned i = 0; i < global.params.objfiles->dim; i++) {
-    const char *p = static_cast<const char *>(global.params.objfiles->data[i]);
-    args.push_back(p);
+    args.push_back((*global.params.objfiles)[i]);
   }
 
   // Link with profile-rt library when generating an instrumented binary
@@ -573,8 +567,7 @@ static int linkObjToBinaryWin(bool sharedLib) {
 
   // user libs
   for (unsigned i = 0; i < global.params.libfiles->dim; i++) {
-    const char *p = static_cast<const char *>(global.params.libfiles->data[i]);
-    args.push_back(p);
+    args.push_back((*global.params.libfiles)[i]);
   }
 
   // set the global gExePath
@@ -586,7 +579,7 @@ static int linkObjToBinaryWin(bool sharedLib) {
 
   // additional linker switches
   for (unsigned i = 0; i < global.params.linkswitches->dim; i++) {
-    std::string str = global.params.linkswitches->data[i];
+    std::string str = (*global.params.linkswitches)[i];
     if (str.length() > 2) {
       // rewrite common -L and -l switches
       if (str[0] == '-' && str[1] == 'L') {
@@ -615,11 +608,10 @@ static int linkObjToBinaryWin(bool sharedLib) {
   Stream logstr = Logger::cout();
   for (const auto &arg : args) {
     if (!arg.empty()) {
-      logstr << "'" << arg << "'"
-             << " ";
+      logstr << "'" << arg << "' ";
     }
   }
-  logstr << "\n"; // FIXME where's flush ?
+  logstr << std::endl;
 
   // try to call linker
   return executeMsvcToolAndWait(tool, args, global.params.verbose);
@@ -673,9 +665,8 @@ int createStaticLibrary() {
     // try root module name
     if (Module::rootModule) {
       libName = Module::rootModule->toChars();
-    } else if (global.params.objfiles->dim) {
-      libName = FileName::removeExt(
-          static_cast<const char *>(global.params.objfiles->data[0]));
+    } else if (!global.params.objfiles->empty()) {
+      libName = FileName::removeExt((*global.params.objfiles)[0]);
     } else {
       libName = "a.out";
     }
@@ -697,8 +688,7 @@ int createStaticLibrary() {
 
   // object files
   for (unsigned i = 0; i < global.params.objfiles->dim; i++) {
-    const char *p = static_cast<const char *>(global.params.objfiles->data[i]);
-    args.push_back(p);
+    args.push_back((*global.params.objfiles)[i]);
   }
 
   // create path to the library
@@ -717,13 +707,13 @@ int createStaticLibrary() {
 //////////////////////////////////////////////////////////////////////////////
 
 void deleteExecutable() {
-  if (!gExePath.empty()) {
-    // assert(gExePath.isValid());
-    bool is_directory;
-    assert(!(!llvm::sys::fs::is_directory(gExePath, is_directory) &&
-             is_directory));
-    llvm::sys::fs::remove(gExePath);
-  }
+  if (gExePath.empty())
+    return;
+
+  bool is_directory;
+  assert(
+      !(!llvm::sys::fs::is_directory(gExePath, is_directory) && is_directory));
+  llvm::sys::fs::remove(gExePath);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -733,7 +723,7 @@ int runExecutable() {
   // assert(gExePath.isValid());
 
   // Run executable
-  int status =
+  const auto status =
       executeToolAndWait(gExePath, opts::runargs, global.params.verbose);
   if (status < 0) {
 #if defined(_MSC_VER) || defined(__MINGW32__)
