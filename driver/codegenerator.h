@@ -7,13 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Contains ldc::CodeGenerator, which is the main entry point for emitting code
-// for one or more D modules to LLVM IR and subsequently to whatever output
-// format has been chosen globally.
-//
-// Currently reads parts of the configuration from global.params, as the code
-// has been extracted straight out of main(). This should be cleaned up in the
-// future.
+// Declares ldc::CodeGenerator, the main entry point for emitting D modules as
+// LLVM IR and object files.
 //
 //===----------------------------------------------------------------------===//
 
@@ -24,6 +19,16 @@
 
 namespace ldc {
 
+/// The main entry point for emitting LLVM IR for one or more D modules and
+/// subsequently storing it in whatever IR/object file/assembly format has
+/// been chosen globally.
+///
+/// Currently reads parts of the configuration from global.params, as the code
+/// has been extracted straight out of main(). This should be cleaned up in
+/// the future.
+///
+/// Note that this class is only concerned with code generation, and not the
+/// system linker step that is necessary for emitting executables.
 class CodeGenerator {
 public:
   CodeGenerator(llvm::LLVMContext &context, bool singleObj);

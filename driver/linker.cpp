@@ -19,8 +19,6 @@
 #include "gen/optimizer.h"
 #include "gen/programs.h"
 #include "llvm/ADT/Triple.h"
-#include "llvm/IRReader/IRReader.h"
-#include "llvm/Linker/Linker.h"
 #include "llvm/ProfileData/InstrProf.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Program.h"
@@ -103,48 +101,6 @@ static std::string getOutputName(bool const sharedLib) {
   }
 
   return result;
-}
-
-//////////////////////////////////////////////////////////////////////////////
-
-namespace {
-
-#if LDC_LLVM_VER >= 306
-/// Insert an LLVM bitcode file into the module
-void insertBitcodeIntoModule(const char *bcFile, llvm::Module &M,
-                             llvm::LLVMContext &Context) {
-  Logger::println("*** Linking-in bitcode file %s ***", bcFile);
-
-  llvm::SMDiagnostic Err;
-  std::unique_ptr<llvm::Module> loadedModule(
-      getLazyIRFileModule(bcFile, Err, Context));
-  if (!loadedModule) {
-    error(Loc(), "Error when loading LLVM bitcode file: %s", bcFile);
-    fatal();
-  }
-#if LDC_LLVM_VER >= 308
-  llvm::Linker(M).linkInModule(std::move(loadedModule));
-#else
-  llvm::Linker(&M).linkInModule(loadedModule.release());
-#endif
-}
-#endif
-}
-
-/// Insert LLVM bitcode files into the module
-void insertBitcodeFiles(llvm::Module &M, llvm::LLVMContext &Ctx,
-                        Array<const char *> &bitcodeFiles) {
-#if LDC_LLVM_VER >= 306
-  for (const char *fname : bitcodeFiles) {
-    insertBitcodeIntoModule(fname, M, Ctx);
-  }
-#else
-  if (!bitcodeFiles.empty()) {
-    error(Loc(),
-          "Passing LLVM bitcode files to LDC is not supported for LLVM < 3.6");
-    fatal();
-  }
-#endif
 }
 
 //////////////////////////////////////////////////////////////////////////////

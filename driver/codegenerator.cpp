@@ -17,7 +17,12 @@
 #include "driver/toobj.h"
 #include "gen/logger.h"
 #include "gen/runtime.h"
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/Linker/Linker.h"
+#include "llvm/Support/SourceMgr.h"
 
+/// Entry point into gen/module.cpp. Should be refactored into a cleaner
+/// interface.
 void codegenModule(IRState *irs, Module *m, bool emitFullModuleInfo);
 
 /// The module with the frontend-generated C main() definition.
@@ -74,6 +79,41 @@ void emitLinkerOptions(IRState &irs, llvm::Module &M, llvm::LLVMContext &ctx) {
 #endif
   }
 }
+
+#if LDC_LLVM_VER >= 306
+/// Loads an LLVM bitcode file and merges it into the given module.
+void insertBitcodeFile(const char *bcFile, llvm::Module &m) {
+  Logger::println("*** Linking-in bitcode file %s ***", bcFile);
+
+  llvm::SMDiagnostic err;
+  std::unique_ptr<llvm::Module> loadedModule(
+      getLazyIRFileModule(bcFile, err, m.getContext()));
+  if (!loadedModule) {
+    error(Loc(), "Error when loading LLVM bitcode file: %s", bcFile);
+    fatal();
+  }
+#if LDC_LLVM_VER >= 308
+  llvm::Linker(m).linkInModule(std::move(loadedModule));
+#else
+  llvm::Linker(&m).linkInModule(loadedModule.release());
+#endif
+}
+#endif
+
+/// Loads a number of LLVM bitcode files and merges them into the given module.
+void insertBitcodeFiles(Array<const char *> &bitcodeFiles, llvm::Module &m) {
+#if LDC_LLVM_VER >= 306
+  for (const char *fname : bitcodeFiles) {
+    insertBitcodeFile(fname, m);
+  }
+#else
+  if (!bitcodeFiles.empty()) {
+    error(Loc(),
+          "Passing LLVM bitcode files to LDC is not supported for LLVM < 3.6");
+    fatal();
+  }
+#endif
+}
 }
 
 namespace ldc {
@@ -105,8 +145,7 @@ CodeGenerator::~CodeGenerator() {
 
     // If there are bitcode files passed on the cmdline, add them after all
     // other source files have been added to the (singleobj) module.
-    insertBitcodeFiles(ir_->module, ir_->context(),
-                       *global.params.bitcodeFiles);
+    insertBitcodeFiles(*global.params.bitcodeFiles, ir_->module);
 
     writeAndFreeLLModule(filename);
   }
@@ -150,8 +189,7 @@ void CodeGenerator::finishLLModule(Module *m) {
   // Add bitcode files passed on the cmdline to
   // the first module only, to avoid duplications.
   if (moduleCount_ == 1) {
-    insertBitcodeFiles(ir_->module, ir_->context(),
-                       *global.params.bitcodeFiles);
+    insertBitcodeFiles(*global.params.bitcodeFiles, ir_->module);
   }
 
   m->deleteObjFile();
